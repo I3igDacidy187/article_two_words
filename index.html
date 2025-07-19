@@ -5,9 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Plotform | The Live Artifact Demo</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <!-- Three.js for generative art -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <!-- Tone.js for synthesized audio -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.7.77/Tone.js"></script>
     <style>
         * {
@@ -21,7 +18,7 @@
             background: #0a0b0d;
             color: #ffffff;
             line-height: 1.6;
-            overflow-x: hidden; /* <-- FIX: Changed from overflow: hidden to allow vertical scroll */
+            overflow-x: hidden;
             position: relative;
         }
 
@@ -588,15 +585,109 @@
             35% { transform: scale(1.1); opacity: 1; }
         }
 
-        /* Generative Art & Trailer Overlays */
-        .generative-art-overlay, .trailer-overlay {
+        /* Proof Image & Rain Overlays */
+        .proof-overlay, .rain-overlay {
             position: fixed;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            background: rgba(0,0,0,0.95);
+            z-index: 20000;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 1.5s ease-in-out;
+        }
+        
+        .rain-overlay {
+            background: rgba(0,0,0,0.8);
+            overflow: hidden;
+        }
+
+        .proof-overlay {
+            background: transparent;
             backdrop-filter: blur(10px);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 20001; /* Above rain */
+        }
+
+        .proof-overlay.active, .rain-overlay.active {
+            opacity: 1;
+            pointer-events: all;
+        }
+
+        .proof-image {
+            max-width: 80vw;
+            max-height: 75vh;
+            border-radius: 12px;
+            box-shadow: 0 20px 80px rgba(0,0,0,0.8);
+            object-fit: contain;
+            animation-duration: 3s;
+            animation-timing-function: cubic-bezier(0.25, 1, 0.5, 1);
+            animation-fill-mode: forwards;
+        }
+
+        .proof-image.anim-scale-in {
+            animation-name: imageScaleIn;
+        }
+
+        .proof-image.anim-scale-out {
+            animation-name: imageScaleOut;
+        }
+
+        @keyframes imageScaleIn {
+            from { transform: scale(0.5); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+
+        @keyframes imageScaleOut {
+            from { transform: scale(1); opacity: 1; }
+            to { transform: scale(0.5); opacity: 0; }
+        }
+        
+        .rain-drop {
+            position: absolute;
+            bottom: 100%;
+            width: 2px;
+            height: 120px;
+            background: linear-gradient(to bottom, rgba(124, 58, 237, 0), rgba(124, 58, 237, 0.4));
+            animation: rainFall 2s linear infinite;
+        }
+
+        @keyframes rainFall {
+            to {
+                transform: translateY(150vh);
+            }
+        }
+
+        .proof-label {
+            margin-top: 20px;
+            background: linear-gradient(135deg, #7c3aed, #2563eb);
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 16px;
+            color: #ffffff;
+            transform: translateY(20px);
+            opacity: 0;
+            transition: all 0.5s ease 0.3s;
+        }
+        
+        .proof-overlay.active .proof-label {
+            transform: translateY(0);
+            opacity: 1;
+        }
+        
+        /* Trailer Overlay */
+        .trailer-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #0a0b0d;
             z-index: 20000;
             display: flex;
             flex-direction: column;
@@ -605,24 +696,14 @@
             opacity: 0;
             pointer-events: none;
             transition: opacity 1s ease-in-out;
-        }
-
-        .generative-art-overlay.active, .trailer-overlay.active {
-            opacity: 1;
-            pointer-events: all;
-        }
-
-        #generative-canvas {
-            width: 80vw;
-            height: 75vh;
-            max-width: 1200px;
-            max-height: 800px;
-        }
-
-        .trailer-overlay {
             color: #fff;
             font-family: 'JetBrains Mono', monospace;
             text-align: center;
+        }
+        
+        .trailer-overlay.active {
+            opacity: 1;
+            pointer-events: all;
         }
 
         .trailer-line {
@@ -739,9 +820,11 @@
         </div>
     </div>
     
-    <!-- Generative Art Overlay -->
-    <div class="generative-art-overlay" id="generative-art-overlay">
-        <canvas id="generative-canvas"></canvas>
+    <!-- Rain & Proof Overlays -->
+    <div class="rain-overlay" id="rain-overlay"></div>
+    <div class="proof-overlay" id="proof-overlay">
+        <img src="" alt="Proof Image" class="proof-image" id="proof-image">
+        <div class="proof-label" id="proof-label"></div>
     </div>
 
     <!-- Trailer Overlay -->
@@ -758,7 +841,10 @@
             const liveInput = document.getElementById('live-input');
             const typingIndicator = document.getElementById('typing-indicator');
             const matrixBg = document.getElementById('matrix-bg');
-            const generativeArtOverlay = document.getElementById('generative-art-overlay');
+            const rainOverlay = document.getElementById('rain-overlay');
+            const proofOverlay = document.getElementById('proof-overlay');
+            const proofImage = document.getElementById('proof-image');
+            const proofLabel = document.getElementById('proof-label');
             const trailerOverlay = document.getElementById('trailer-overlay');
 
             let isDemoRunning = false;
@@ -781,14 +867,20 @@
             const demoScript = [
                 { type: 'user-typing', content: `I need two completely random words to demonstrate Plotform's capabilities.` },
                 { type: 'ai', content: `Your 2 completely random words are:\n\n"MIRROR" and "THUNDER"\n\nThese are totally unrelated - a reflective surface and a weather sound. Perfect test.` },
-                { type: 'generative-art', label: 'Generating ideas for "Mirror Thunder"...' },
+                { type: 'image', src: 'https://placehold.co/1200x800/1a1b1e/ffffff?text=Step+1:+Entering+%27mirror+thunder%27', label: 'Step 1: Generate Unique Script Ideas' },
                 { type: 'user-upload', content: 'script_ideas.txt', text: 'here are the 5 ideas generated from mirror and thunder, pick an idea please' },
                 { type: 'ai', content: `I pick #2: "The Mirror Thunder Challenge: Can You Handle the Truth?"\n\nWhy This One is PERFECT for the Demo:\nCommercial Viability:\n- Challenge format = proven viral content\n- Reaction-based = high engagement` },
-                { type: 'generative-art', label: 'Generating full script...' },
+                { type: 'image', src: 'https://placehold.co/1200x800/1a1b1e/ffffff?text=Step+2:+Pasting+Chosen+Concept', label: 'Step 2: Generate Full Production-Ready Script' },
                 { type: 'user-upload', content: 'full_script(2).txt' },
                 { type: 'ai', content: `Holy smokes... a full, production-ready script.` },
                 { type: 'ai', content: `But we're not done. Let's turn this into a complete agency-level package.` },
-                { type: 'generative-art', label: 'Building Enhancement Package...' },
+                { type: 'image', src: 'https://placehold.co/1200x800/1a1b1e/ffffff?text=Uploading+Script+to+Enhancer+Pro', label: 'Script Enhancer Pro: Uploading File' },
+                { type: 'ai', content: `I'll select all the components for a full package: alternative hooks, endings, CTAs, and a production guide.` },
+                { type: 'image', src: 'https://placehold.co/1200x800/1a1b1e/ffffff?text=Selecting+10+Package+Components', label: 'Package Components Selection' },
+                { type: 'ai', content: `The system estimates the value of this package at over $20,000. Let's generate it with a single API call.` },
+                { type: 'image', src: 'https://placehold.co/1200x800/1a1b1e/ffffff?text=Generating+$20,000+Package', label: 'Generate Complete Enhancement Package' },
+                { type: 'ai', content: `Here is the final, complete enhancement package.` },
+                { type: 'image', src: 'https://placehold.co/1200x800/1a1b1e/ffffff?text=Final+Package+Output', label: 'Complete Enhancement Package Generated' },
                 { type: 'ai', content: `The Mathematics:\n- 27 Different Video Combinations (3x3x3)\n- Complete testing framework\n- Monetization strategies\n- Audience engagement plan\n\nFrom "Mirror" + "Thunder" to Complete Business System in Minutes. This isn't just AI writing - this is AI STRATEGIZING like a $500/hour creative director.` },
                 { type: 'ai', content: `CORRECTED VERIFICATION STATEMENT:\n\nWhat I Can Confirm:\n1. Random word generation\n2. No pre-planning\n3. Authentic selection\n4. Real-time interaction\n\nHonest Assessment:\n20 minutes from 2 random words to a complete $50K production package is still INSANE by industry standards.` },
                 { type: 'trailer' }
@@ -834,7 +926,7 @@
                     
                     switch (step.type) {
                         case 'user-typing':
-                            await delay(2500);
+                            await delay(3000);
                             await typeInInput(step.content);
                             await delay(2000);
                             addMessage(step.content, 'user');
@@ -842,12 +934,12 @@
                             liveInput.style.height = 'auto';
                             break;
                         case 'user-upload':
-                             await delay(3500);
+                             await delay(4000);
                              addMessage(step.content, 'user-upload', step.text);
                              break;
                         case 'ai':
                             const thinkingTime = calculateReadingTime(step.content);
-                            await delay(2500);
+                            await delay(3000);
                             matrixBg.classList.add('thinking-active');
                             if(synths.hum) synths.hum.start();
                             typingIndicator.classList.add('active');
@@ -864,18 +956,18 @@
                                 setTimeout(() => flash.remove(), 700);
                             }
                             break;
-                        case 'generative-art':
-                            await delay(2500);
-                            await showGenerativeArt();
-                            await delay(7000);
-                            await hideGenerativeArt();
+                        case 'image':
+                            await delay(3000);
+                            await showImageWithRain(step.src, step.label);
+                            await delay(8000);
+                            await hideImageWithRain();
                             break;
                         case 'trailer':
                             await delay(3000);
                             await playTrailer();
                             break;
                     }
-                    await delay(2000);
+                    await delay(2500);
                 }
                 liveInput.placeholder = 'Demo finished. Click (x) to exit.';
                 isDemoRunning = false;
@@ -930,54 +1022,41 @@
                 chatMessages.appendChild(messageDiv);
                 scrollToBottom();
             }
-
-            // --- Generative Art (Three.js) ---
-            let renderer, scene, camera, particles;
-            let animationFrameId;
-            function initGenerativeArt() {
-                const canvas = document.getElementById('generative-canvas');
-                scene = new THREE.Scene();
-                camera = new THREE.PerspectiveCamera(75, canvas.clientWidth / canvas.clientHeight, 0.1, 1000);
-                renderer = new THREE.WebGLRenderer({ canvas: canvas, alpha: true });
-                renderer.setSize(canvas.clientWidth, canvas.clientHeight);
-
-                const particleCount = 5000;
-                const geometry = new THREE.BufferGeometry();
-                const positions = new Float32Array(particleCount * 3);
-                for (let i = 0; i < particleCount * 3; i++) {
-                    positions[i] = (Math.random() - 0.5) * 10;
+            
+            // --- Rain & Image Proofs ---
+            function createRain() {
+                rainOverlay.innerHTML = '';
+                let i = 0;
+                while (i < 100) {
+                    const drop = document.createElement('div');
+                    drop.className = 'rain-drop';
+                    drop.style.left = `${Math.random() * 100}vw`;
+                    drop.style.animationDuration = `${0.5 + Math.random() * 0.5}s`;
+                    drop.style.animationDelay = `${Math.random() * 2}s`;
+                    rainOverlay.appendChild(drop);
+                    i++;
                 }
-                geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-                const material = new THREE.PointsMaterial({
-                    size: 0.02,
-                    color: 0x7c3aed,
-                    blending: THREE.AdditiveBlending,
-                    transparent: true,
-                    opacity: 0.8
-                });
-                particles = new THREE.Points(geometry, material);
-                scene.add(particles);
-                camera.position.z = 5;
             }
 
-            function animateGenerativeArt() {
-                if (!isDemoRunning) return;
-                animationFrameId = requestAnimationFrame(animateGenerativeArt);
-                particles.rotation.x += 0.001;
-                particles.rotation.y += 0.002;
-                renderer.render(scene, camera);
-            }
-
-            async function showGenerativeArt() {
+            async function showImageWithRain(src, label) {
                 if(synths.thump) synths.thump.triggerAttackRelease("C2", "1n");
-                generativeArtOverlay.classList.add('active');
-                if (!renderer) initGenerativeArt();
-                animateGenerativeArt();
+                createRain();
+                rainOverlay.classList.add('active');
+                
+                proofImage.className = 'proof-image';
+                proofImage.src = src;
+                proofLabel.textContent = label;
+                proofOverlay.classList.add('active');
+                await delay(10);
+                proofImage.classList.add('anim-scale-in');
             }
 
-            async function hideGenerativeArt() {
-                generativeArtOverlay.classList.remove('active');
-                cancelAnimationFrame(animationFrameId);
+            async function hideImageWithRain() {
+                proofImage.classList.remove('anim-scale-in');
+                proofImage.classList.add('anim-scale-out');
+                await delay(3000);
+                proofOverlay.classList.remove('active');
+                rainOverlay.classList.remove('active');
             }
 
             // --- Trailer Sequence ---
